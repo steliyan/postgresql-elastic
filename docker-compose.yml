@@ -1,0 +1,44 @@
+---
+version: '3'
+services:
+  postgresql-db:
+    image: postgres:9.6
+    container_name: postgresql-db
+    volumes:
+      - "./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql"
+    restart: always
+    environment:
+      POSTGRES_USER: elastic
+      POSTGRES_PASSWORD: changeme
+      POSTGRES_DB: test
+    ports:
+      - "7432:5432"
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch-platinum:${TAG}
+    container_name: elasticsearch
+    environment: ['http.host=0.0.0.0', 'transport.host=127.0.0.1', 'ELASTIC_PASSWORD=${ELASTIC_PASSWORD}']
+    ports: ['127.0.0.1:9200:9200']
+
+  logstash:
+    image: docker.elastic.co/logstash/logstash:${TAG}
+    container_name: logstash
+    environment:
+      - 'xpack.monitoring.elasticsearch.password=${ELASTIC_PASSWORD}'
+    # Provide a simple pipeline configuration for Logstash with a bind-mounted file.
+    volumes:
+      - ./config/logstash.conf:/usr/share/logstash/pipeline/logstash.conf
+      - ./logstash-plugins/postgresql-42.2.2.jar:/usr/share/logstash/config/postgresql-42.2.2.jar
+    depends_on: ['elasticsearch', 'setup_logstash', 'postgresql-db']
+
+  # Run a short-lived container to set up Logstash.
+  setup_logstash:
+    image: centos:7
+    container_name: setup_logstash
+    volumes: ['./scripts/setup-logstash.sh:/usr/local/bin/setup-logstash.sh:ro']
+    # The script may have CR/LF line endings if using Docker for Windows, so
+    # make sure that they don't confuse Bash.
+    command: ['/bin/bash', '-c', 'cat /usr/local/bin/setup-logstash.sh | tr -d "\r" | bash']
+    environment: ['ELASTIC_PASSWORD=${ELASTIC_PASSWORD}']
+    depends_on: ['elasticsearch']
+
